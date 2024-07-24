@@ -19,7 +19,7 @@ class Deploy extends Command
     public function __construct()
     {
         parent::__construct();
-        
+
         $this->client = new Client([
             'base_uri' => config('app.api.baseUrl'),
             'timeout'  => 20.0,
@@ -79,7 +79,7 @@ class Deploy extends Command
     private function validateDomain($domain)
     {
         try {
-            $response = $this->client->request('GET', config('app.api.basePath')."/".config('app.api.version')."/validate-domain?domain={$domain}");
+            $response = $this->client->request('GET', config('app.api.basePath') . "/" . config('app.api.version') . "/validate-domain?domain={$domain}");
             return json_decode($response->getBody()->getContents(), true);
         } catch (GuzzleException $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -89,7 +89,7 @@ class Deploy extends Command
     private function requestGeneratedDomain()
     {
         try {
-            $response = $this->client->request('GET', config('app.api.basePath')."/".config('app.api.version')."/generate-domain");
+            $response = $this->client->request('GET', config('app.api.basePath') . "/" . config('app.api.version') . "/generate-domain");
             return json_decode($response->getBody()->getContents(), true);
         } catch (GuzzleException $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -106,50 +106,67 @@ class Deploy extends Command
             return false;
         }
 
-        $files = new RecursiveIteratorIterator(
+        $iterator = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
             RecursiveIteratorIterator::LEAVES_ONLY
         );
 
-        $fileCount = 0;
-        $totalSize = 0;
+        $files = iterator_to_array($iterator, false); // Collect all files first to determine progress accurately
+        $progressBar = $this->output->createProgressBar(count($files));
+        $progressBar->start();
+
+        $currentSize = 0;
         $maxFileSize = 500 * 1024 * 1024; // 500 MB limit
-        $maxFileCount = 10000; // Limit to 10,000 files
+        $maxTotalSize = 5 * 1024 * 1024 * 1024; // 5 GB total limit
+        $fileLimit = 0;
 
         foreach ($files as $file) {
-            $filePath = $file->getRealPath();
-            $relativePath = substr($filePath, strlen($path) + 1);
+            // Get relative path from the base path
+            $relativePath = $iterator->getSubPathName();
 
             if ($this->shouldBeIgnored($relativePath, $ignorePatterns)) {
+                $progressBar->advance();
                 continue;
             }
 
             if ($file->getSize() > $maxFileSize) {
                 $this->error("File too large: {$relativePath}");
+                $zip->close();
+                @unlink($zipFilename);
+                $progressBar->finish();
                 return false;
             }
 
-            $totalSize += $file->getSize();
-            if ($totalSize > $maxFileSize || $fileCount++ > $maxFileCount) {
+            $currentSize += $file->getSize();
+            if ($currentSize > $maxTotalSize || $fileLimit++ > count($files)) {
                 $this->error("Project too large or too many files.");
+                $zip->close();
+                @unlink($zipFilename);
+                $progressBar->finish();
                 return false;
             }
 
-            $zip->addFile($filePath, $relativePath);
+            $zip->addFile($file->getRealPath(), $relativePath);
+            $progressBar->advance();
         }
 
         $zip->close();
+        $progressBar->finish();
+        $this->info("\nCompression complete.");
         return $zipFilename;
     }
 
-    private function shouldBeIgnored($path, $patterns) {
+
+    private function shouldBeIgnored($path, $patterns)
+    {
         foreach ($patterns as $pattern) {
             if (fnmatch($pattern, $path)) return true;
         }
         return false;
     }
 
-    private function loadIgnorePatterns($path) {
+    private function loadIgnorePatterns($path)
+    {
         $ignoreFile = $path . '/.rolloutignore';
         return file_exists($ignoreFile) ? file($ignoreFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     }
@@ -157,30 +174,43 @@ class Deploy extends Command
 
     private function uploadProject($filePath, $domain)
     {
+        $fileSize = filesize($filePath);
+        $progressBar = $this->output->createProgressBar($fileSize);
+        $progressBar->start();
+
         try {
-            $response = $this->client->request('POST', config('app.api.basePath')."/".config('app.api.version'). "/deploy?domain={$domain}", [
+            $response = $this->client->request('POST', config('app.api.basePath') . "/" . config('app.api.version') . "/deploy?domain={$domain}", [
                 'multipart' => [
                     [
                         'name'     => 'file',
-                        'contents' => fopen($filePath, 'r')
+                        'contents' => fopen($filePath, 'r'),
+                        'filename' => basename($filePath)
                     ]
-                ]
+                ],
+                'progress' => function ($downloadTotal, $downloadedBytes, $uploadTotal, $uploadedBytes) use ($progressBar) {
+                    if ($uploadTotal > 0) {
+                        $progressBar->setProgress($uploadedBytes);
+                    }
+                }
             ]);
+
+            $progressBar->finish();
+            $this->info("\nUpload complete.");
 
             $body = $response->getBody()->getContents();
             $data = json_decode($body, true);  // Decode the JSON response
 
-            if ($data['success']) {
+            if (isset($data['success']) && $data['success']) {
                 $this->info($data['message']);  // Show success message from server
                 return true;
             } else {
-                $this->error("Deployment failed: " . $data['error']);  // Show error message from server
+                $this->error("Deployment failed: " . ($data['error'] ?? 'Unknown error'));  // Show error message from server
                 return false;
             }
         } catch (GuzzleException $e) {
-            $this->error("Failed to deploy: " . $e->getMessage());
+            $progressBar->finish();
+            $this->error("\nFailed to deploy: " . $e->getMessage());
             return false;
         }
     }
-
 }
