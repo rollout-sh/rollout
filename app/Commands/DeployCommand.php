@@ -12,7 +12,7 @@ use FilesystemIterator;
 
 class DeployCommand extends BaseCommand
 {
-    protected $signature = 'deploy {path? : The path to the project directory} {domain? : The custom domain to deploy to} {--clear-config}';
+    protected $signature = 'deploy {--path : The path to the project directory} {--domain : The custom domain to deploy to} {--clear-config}';
     protected $description = 'Deploys your project to Rollout.sh, optionally to a specified domain';
 
     public function __construct() {
@@ -21,7 +21,7 @@ class DeployCommand extends BaseCommand
 
     public function handle() {
         
-        $path = $this->argument('path') ?: getcwd();
+        $path = $this->option('path') ?: getcwd();
 
         if ($this->option('clear-config')) {
             $this->clearDeploymentConfig($path);
@@ -39,7 +39,7 @@ class DeployCommand extends BaseCommand
             $this->refreshClient();
         }
 
-        $path = $this->argument('path') ?: getcwd();
+        $path = $this->option('path') ?: getcwd();
         if (!file_exists($path)) {
             $this->error("The specified path does not exist.");
             return self::FAILURE;
@@ -82,7 +82,7 @@ class DeployCommand extends BaseCommand
 
         // If not in config, check argument
         if (!$domain) {
-            $domain = $this->argument('domain');
+            $domain = $this->option('domain');
         }
 
         // If not in argument, request from API

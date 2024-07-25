@@ -1,7 +1,7 @@
 {
-    "name": "rollout.sh/rollout",
-    "description": "Rollout.sh CLI",
-    "keywords": ["framework", "laravel", "laravel zero", "console", "cli"],
+    "name": "rollout/rollout",
+    "description": "Rollout CLI",
+    "keywords": [],
     "homepage": "https://rollout.sh",
     "type": "project",
     "license": "MIT",
