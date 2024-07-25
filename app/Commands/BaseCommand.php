@@ -15,10 +15,10 @@ abstract class BaseCommand extends Command
 
     public function __construct() {   
         parent::__construct();
-        $this->setupClient();
+        $this->refreshClient();
     }
 
-    protected function setupClient() {
+    protected function refreshClient() {
         $this->client = new Client([
             'base_uri' => config('app.api.baseUrl'),
             'headers' => [
@@ -29,8 +29,7 @@ abstract class BaseCommand extends Command
         ]);
     }
 
-    protected function getConfigDirectory()
-    {
+    protected function getConfigDirectory() {
         $homeDirectory = getenv('HOME') ?: getenv('USERPROFILE');
         $configDirectory = $homeDirectory . '/.rollout';
         if (!file_exists($configDirectory)) {
@@ -39,35 +38,28 @@ abstract class BaseCommand extends Command
         return $configDirectory;
     }
 
-    protected function getToken()
-    {
+    protected function getToken() {
         $tokenFile = $this->getConfigDirectory() . '/auth_token.txt';
         return file_exists($tokenFile) ? trim(file_get_contents($tokenFile)) : null;
     }
 
-    protected function saveToken($token)
-    {
+    protected function saveToken($token) {
         $tokenFile = $this->getConfigDirectory() . '/auth_token.txt';
         file_put_contents($tokenFile, $token);
     }
 
-    protected function deleteToken()
-    {
+    protected function deleteToken() {
         $tokenFile = $this->getConfigDirectory() . '/auth_token.txt';
         if (file_exists($tokenFile)) {
             unlink($tokenFile);
         }
     }
 
-    protected function hasValidCredentials()
-    {
+    protected function hasValidCredentials() {
         return $this->getToken() !== null;
     }
 
-
-
-    protected function makeApiRequest($endpoint, $method = 'GET', $data = [])
-    {
+    protected function makeApiRequest($endpoint, $method = 'GET', $data = []) {
         try {
             $options = [];
             if ($method === 'POST' && !empty($data)) {

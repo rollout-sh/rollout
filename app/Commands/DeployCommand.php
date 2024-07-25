@@ -15,10 +15,8 @@ class DeployCommand extends BaseCommand
     protected $signature = 'deploy {path? : The path to the project directory} {domain? : The custom domain to deploy to}';
     protected $description = 'Deploys your project to Rollout.sh, optionally to a specified domain';
 
-    public function __construct()
-    {
+    public function __construct() {
         parent::__construct();
-        $this->setupClient();
     }
 
     public function handle() {
@@ -31,6 +29,7 @@ class DeployCommand extends BaseCommand
                 $this->error('Authentication required to proceed.');
                 return self::FAILURE;
             }
+            $this->refreshClient();
         }
 
         $path = $this->argument('path') ?: getcwd();

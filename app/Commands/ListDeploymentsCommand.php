@@ -8,7 +8,7 @@ use LaravelZero\Framework\Commands\Command;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 
-class ListDeploymentsCommand extends Command
+class ListDeploymentsCommand extends BaseCommand
 {
     protected $signature = 'deployments:list {domain?}';
     protected $description = 'Lists all deployments for a specified domain';
@@ -17,13 +17,9 @@ class ListDeploymentsCommand extends Command
     {
         $domain = $this->argument('domain');
 
-        $client = new Client([
-            'base_uri' => config('app.api.baseUrl'),
-        ]);
-
         try {
-            $response = $client->request('GET', config('app.api.basePath') . "/" . config('app.api.version') ."/deployments?domain={$domain}");
-            $deployments = json_decode($response->getBody()->getContents(), true)['deployments'];
+            $response = $this->makeApiRequest("/deployments?domain={$domain}");
+            $deployments = $response['deployments'];
 
             foreach ($deployments as $deployment) {
                 $this->line("Version: {$deployment['version']}, Domain: {$deployment['domain']}, Deployed at: {$deployment['deployed_at']}");

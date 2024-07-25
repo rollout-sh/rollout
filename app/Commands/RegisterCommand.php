@@ -12,8 +12,7 @@ class RegisterCommand extends BaseCommand
     protected $signature = 'register';
     protected $description = 'Register a new user account';
 
-    public function handle()
-    {
+    public function handle() {
         // Prompt for user input
         $email = $this->ask('Enter your email');
         $password = $this->secret('Enter your password'); // Uses 'secret' method to hide input for security
