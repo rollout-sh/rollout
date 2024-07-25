@@ -12,7 +12,7 @@ use FilesystemIterator;
 
 class DeployCommand extends BaseCommand
 {
-    protected $signature = 'deploy {path? : The path to the project directory} {domain? : The custom domain to deploy to}';
+    protected $signature = 'deploy {path? : The path to the project directory} {domain? : The custom domain to deploy to} {--clear-config}';
     protected $description = 'Deploys your project to Rollout.sh, optionally to a specified domain';
 
     public function __construct() {
@@ -20,8 +20,15 @@ class DeployCommand extends BaseCommand
     }
 
     public function handle() {
+        
         $path = $this->argument('path') ?: getcwd();
-        $domain = $this->argument('domain');
+
+        if ($this->option('clear-config')) {
+            $this->clearDeploymentConfig($path);
+            $this->info('Deployment configuration cleared.');
+            return self::SUCCESS;
+        }
+
 
         if (!$this->hasValidCredentials()) {
             $this->call('login');
@@ -40,13 +47,15 @@ class DeployCommand extends BaseCommand
 
         $this->info("Preparing to deploy project from: {$path}");
 
-        $domainResult = $this->getOrGenerateDomain($domain);
+        // Determine the domain to use
+        $domainResult = $this->getOrGenerateDomain($path);
         if (!$domainResult['success']) {
             $this->error("Failed to prepare the domain: " . $domainResult['error']);
             return self::FAILURE;
         }
 
         $domain = $domainResult['domain'];
+       
         $this->info("Deploying to: {$domain}...");
 
         $zipPath = $this->compressProject($path);
@@ -67,16 +76,31 @@ class DeployCommand extends BaseCommand
         }
     }
 
-    private function getOrGenerateDomain($specifiedDomain)
-    {
-        if ($specifiedDomain) {
-            return $this->validateDomain($specifiedDomain);
+    protected function getOrGenerateDomain($path) {
+        // Check for domain in config
+        $domain = $this->readConfig("{$path}_domain");
+
+        // If not in config, check argument
+        if (!$domain) {
+            $domain = $this->argument('domain');
         }
-        return $this->requestGeneratedDomain();
+
+        // If not in argument, request from API
+        if (!$domain) {
+            $domainResult = $this->requestGeneratedDomain();
+            if (!$domainResult['success']) {
+                return ['success' => false, 'error' => $domainResult['error']];
+            }
+            $domain = $domainResult['domain'];
+
+            // Save the generated domain in config
+            $this->writeConfig("{$path}_domain", $domain);
+        }
+
+        return ['success' => true, 'domain' => $domain];
     }
 
-    private function validateDomain($domain)
-    {
+    private function validateDomain($domain) {
         try {
             $response = $this->client->request('GET', config('app.api.basePath') . "/" . config('app.api.version') . "/validate-domain?domain={$domain}");
             return json_decode($response->getBody()->getContents(), true);
@@ -88,15 +112,14 @@ class DeployCommand extends BaseCommand
     private function requestGeneratedDomain()
     {
         try {
-            $response = $this->client->request('GET', config('app.api.basePath') . "/" . config('app.api.version') . "/generate-domain");
-            return json_decode($response->getBody()->getContents(), true);
+            $response = $this->makeApiRequest("/generate-domain");
+            return $response;
         } catch (GuzzleException $e) {
             return ['success' => false, 'error' => $e->getMessage()];
         }
     }
 
-    private function compressProject($path)
-    {
+    private function compressProject($path) {
         $ignorePatterns = $this->loadIgnorePatterns($path);
         $zip = new ZipArchive();
         $zipFilename = sys_get_temp_dir() . '/project_' . md5(time()) . '.zip';

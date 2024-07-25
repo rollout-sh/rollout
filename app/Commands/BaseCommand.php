@@ -92,4 +92,20 @@ abstract class BaseCommand extends Command
             }
         }
     }
+
+    protected function readConfig($key, $default = null) {
+        $configFile = $this->getConfigDirectory() . '/config.json';
+        if (file_exists($configFile)) {
+            $config = json_decode(file_get_contents($configFile), true);
+            return $config[$key] ?? $default;
+        }
+        return $default;
+    }
+
+    protected function writeConfig($key, $value) {
+        $configFile = $this->getConfigDirectory() . '/config.json';
+        $config = file_exists($configFile) ? json_decode(file_get_contents($configFile), true) : [];
+        $config[$key] = $value;
+        file_put_contents($configFile, json_encode($config, JSON_PRETTY_PRINT));
+    }
 }
