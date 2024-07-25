@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'default' => App\Commands\Deploy::class,
+    'default' => App\Commands\DeployCommand::class,
 
     /*
     |--------------------------------------------------------------------------

@@ -10,30 +10,30 @@ use RecursiveIteratorIterator;
 use RecursiveDirectoryIterator;
 use FilesystemIterator;
 
-class Deploy extends Command
+class DeployCommand extends BaseCommand
 {
     protected $signature = 'deploy {path? : The path to the project directory} {domain? : The custom domain to deploy to}';
     protected $description = 'Deploys your project to Rollout.sh, optionally to a specified domain';
-    protected $client;
 
     public function __construct()
     {
         parent::__construct();
-
-        $this->client = new Client([
-            'base_uri' => config('app.api.baseUrl'),
-            'timeout'  => 20.0,
-            'headers' => [
-                'Accept'     => 'application/json',
-            ]
-        ]);
+        $this->setupClient();
     }
 
-    public function handle()
-    {
+    public function handle() {
         $path = $this->argument('path') ?: getcwd();
         $domain = $this->argument('domain');
 
+        if (!$this->hasValidCredentials()) {
+            $this->call('login');
+            if (!$this->hasValidCredentials()) {
+                $this->error('Authentication required to proceed.');
+                return self::FAILURE;
+            }
+        }
+
+        $path = $this->argument('path') ?: getcwd();
         if (!file_exists($path)) {
             $this->error("The specified path does not exist.");
             return self::FAILURE;
