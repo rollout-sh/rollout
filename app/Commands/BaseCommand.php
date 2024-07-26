@@ -108,4 +108,8 @@ abstract class BaseCommand extends Command
         $config[$key] = $value;
         file_put_contents($configFile, json_encode($config, JSON_PRETTY_PRINT));
     }
+
+    protected function displayGreeting() {
+        $this->line('Rollout - static site hosting for developers');
+    }
 }

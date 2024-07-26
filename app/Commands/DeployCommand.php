@@ -12,23 +12,23 @@ use FilesystemIterator;
 
 class DeployCommand extends BaseCommand
 {
-    protected $signature = 'deploy {--path : The path to the project directory} {--domain : The custom domain to deploy to} {--clear-config}';
+    protected $signature = 'deploy {path? : The path to the project directory} {domain? : The custom domain to deploy to} {--clear-config : Clears saved configuration for the current folder}';
     protected $description = 'Deploys your project to Rollout.sh, optionally to a specified domain';
 
-    public function __construct() {
+    public function __construct()
+    {
         parent::__construct();
     }
 
-    public function handle() {
-        
-        $path = $this->option('path') ?: getcwd();
+    public function handle()
+    {
+        $path = $this->argument('path') ?: getcwd();
 
         if ($this->option('clear-config')) {
             $this->clearDeploymentConfig($path);
             $this->info('Deployment configuration cleared.');
             return self::SUCCESS;
         }
-
 
         if (!$this->hasValidCredentials()) {
             $this->call('login');
@@ -39,7 +39,6 @@ class DeployCommand extends BaseCommand
             $this->refreshClient();
         }
 
-        $path = $this->option('path') ?: getcwd();
         if (!file_exists($path)) {
             $this->error("The specified path does not exist.");
             return self::FAILURE;
@@ -47,7 +46,6 @@ class DeployCommand extends BaseCommand
 
         $this->info("Preparing to deploy project from: {$path}");
 
-        // Determine the domain to use
         $domainResult = $this->getOrGenerateDomain($path);
         if (!$domainResult['success']) {
             $this->error("Failed to prepare the domain: " . $domainResult['error']);
@@ -55,7 +53,6 @@ class DeployCommand extends BaseCommand
         }
 
         $domain = $domainResult['domain'];
-       
         $this->info("Deploying to: {$domain}...");
 
         $zipPath = $this->compressProject($path);
@@ -77,32 +74,62 @@ class DeployCommand extends BaseCommand
     }
 
     protected function getOrGenerateDomain($path) {
-        // Check for domain in config
-        $domain = $this->readConfig("{$path}_domain");
-
-        // If not in config, check argument
+        $domain = $this->argument('domain');
         if (!$domain) {
-            $domain = $this->option('domain');
+            $domain = $this->readConfig("{$path}_domain");
+            
         }
-
-        // If not in argument, request from API
-        if (!$domain) {
+        
+        if ($domain) {
+            $domainValidationResult = $this->validateDomain($domain);
+            if ($domainValidationResult['success']) {
+                // Domain is valid and exists
+                return ['success' => true, 'domain' => $domain];
+            } else {
+                $this->info("Stored domain is invalid, attempting to create it.");
+                $domainCreationResult = $this->createDomain($domain);
+                if ($domainCreationResult['success']) {
+                    return ['success' => true, 'domain' => $domain];
+                } else {
+                    return ['success' => false, 'error' => $domainCreationResult['error']];
+                }
+            }
+        } else {
+                
             $domainResult = $this->requestGeneratedDomain();
-            if (!$domainResult['success']) {
+
+            if ($domainResult['success']) {
+                $domain = $domainResult['domain'];
+                $this->writeConfig("{$path}_domain", $domain);  // Save the generated domain in config
+                return ['success' => true, 'domain' => $domain];
+            } else {
                 return ['success' => false, 'error' => $domainResult['error']];
             }
-            $domain = $domainResult['domain'];
-
-            // Save the generated domain in config
-            $this->writeConfig("{$path}_domain", $domain);
         }
-
-        return ['success' => true, 'domain' => $domain];
     }
+    
 
-    private function validateDomain($domain) {
+    private function validateDomain($domain)
+    {
         try {
             $response = $this->client->request('GET', config('app.api.basePath') . "/" . config('app.api.version') . "/validate-domain?domain={$domain}");
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (GuzzleException $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    private function createDomain($domain)
+    {
+        try {
+            $response = $this->client->request('POST', config('app.api.basePath') . "/" . config('app.api.version') . "/domains", [
+                'json' => [
+                    'domain' => $domain
+                ],
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->getToken(),  // Include the token in the headers
+                ]
+            ]);
             return json_decode($response->getBody()->getContents(), true);
         } catch (GuzzleException $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -119,7 +146,8 @@ class DeployCommand extends BaseCommand
         }
     }
 
-    private function compressProject($path) {
+    private function compressProject($path)
+    {
         $ignorePatterns = $this->loadIgnorePatterns($path);
         $zip = new ZipArchive();
         $zipFilename = sys_get_temp_dir() . '/project_' . md5(time()) . '.zip';
@@ -133,7 +161,7 @@ class DeployCommand extends BaseCommand
             RecursiveIteratorIterator::LEAVES_ONLY
         );
 
-        $files = iterator_to_array($iterator, false); // Collect all files first to determine progress accurately
+        $files = iterator_to_array($iterator, false);
         $progressBar = $this->output->createProgressBar(count($files));
         $progressBar->start();
 
@@ -143,7 +171,6 @@ class DeployCommand extends BaseCommand
         $fileLimit = 0;
 
         foreach ($files as $file) {
-            // Get relative path from the base path
             $relativePath = $iterator->getSubPathName();
 
             if ($this->shouldBeIgnored($relativePath, $ignorePatterns)) {
@@ -178,7 +205,6 @@ class DeployCommand extends BaseCommand
         return $zipFilename;
     }
 
-
     private function shouldBeIgnored($path, $patterns)
     {
         foreach ($patterns as $pattern) {
@@ -193,7 +219,6 @@ class DeployCommand extends BaseCommand
         return file_exists($ignoreFile) ? file($ignoreFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     }
 
-
     private function uploadProject($filePath, $domain)
     {
         $fileSize = filesize($filePath);
@@ -204,7 +229,7 @@ class DeployCommand extends BaseCommand
             $response = $this->client->request('POST', config('app.api.basePath') . "/" . config('app.api.version') . "/deploy?domain={$domain}", [
                 'multipart' => [
                     [
-                        'name'     => 'file',
+                        'name' => 'file',
                         'contents' => fopen($filePath, 'r'),
                         'filename' => basename($filePath)
                     ]
@@ -220,13 +245,13 @@ class DeployCommand extends BaseCommand
             $this->info("\nUpload complete.");
 
             $body = $response->getBody()->getContents();
-            $data = json_decode($body, true);  // Decode the JSON response
+            $data = json_decode($body, true);
 
             if (isset($data['success']) && $data['success']) {
-                $this->info($data['message']);  // Show success message from server
+                $this->info($data['message']);
                 return true;
             } else {
-                $this->error("Deployment failed: " . ($data['error'] ?? 'Unknown error'));  // Show error message from server
+                $this->error("Deployment failed: " . ($data['error'] ?? 'Unknown error'));
                 return false;
             }
         } catch (GuzzleException $e) {

@@ -8,7 +8,7 @@ use LaravelZero\Framework\Commands\Command;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 
-class ListDeploymentsCommand extends BaseCommand
+class DeploymentsListCommand extends BaseCommand
 {
     protected $signature = 'deployments:list {domain?}';
     protected $description = 'Lists all deployments for a specified domain';
