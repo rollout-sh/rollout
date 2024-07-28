@@ -1,0 +1,19 @@
+#!/usr/bin/env php
+<?php
+// rollout
+require __DIR__ . '/vendor/autoload.php';
+
+use Symfony\Component\Console\Application;
+use Rollout\Service\ConfigService;
+use Rollout\Service\AuthService;
+use Rollout\Command\RegisterCommand;
+use Rollout\Command\LoginCommand;
+
+$configService = new ConfigService;
+$authService = new AuthService($configService);
+
+$application = new Application;
+$application->add(new RegisterCommand($configService, $authService));
+$application->add(new LoginCommand($configService, $authService));
+
+$application->run();
