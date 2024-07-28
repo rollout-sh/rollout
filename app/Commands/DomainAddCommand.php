@@ -4,8 +4,8 @@ namespace App\Commands;
 
 class DomainAddCommand extends BaseCommand
 {
-    protected $signature = 'domain:add {domain : The domain to add} {deployment : The deployment identifier}';
-    protected $description = 'Add a custom domain to a deployment. Example: domain:add example.com 123';
+    protected $signature = 'domain:add {domain : The domain to add}';
+    protected $description = 'Add a custom domain to a deployment. Example: domain:add example.com';
 
     public function __construct() {
         parent::__construct();
@@ -13,7 +13,7 @@ class DomainAddCommand extends BaseCommand
 
     public function handle() {
         $domain = $this->argument('domain');
-        $deployment = $this->argument('deployment');
+        // $deployment = $this->argument('deployment');
 
         if (!$this->hasValidCredentials()) {
             $this->call('login');
@@ -24,21 +24,21 @@ class DomainAddCommand extends BaseCommand
             $this->refreshClient();
         }
 
-        $this->info("Attempting to add domain '{$domain}' to deployment with ID '{$deployment}'...");
+        $this->info("Attempting to add domain '{$domain}'...");
 
-        $result = $this->addDomainToDeployment($domain, $deployment);
+        $result = $this->addDomainToDeployment($domain);
         if (!$result['success']) {
             $this->error("Failed to add domain: " . $result['error']);
             return self::FAILURE;
         }
 
-        $this->info("Domain '{$domain}' added to deployment '{$deployment}' successfully.");
+        $this->info("Domain '{$domain}' added successfully.");
         return self::SUCCESS;
     }
 
-    protected function addDomainToDeployment($domain, $deployment) {
+    protected function addDomainToDeployment($domain) {
         try {
-            $response = $this->makeApiRequest('/domains', 'POST', ['domain' => $domain, 'deployment' => $deployment]);
+            $response = $this->makeApiRequest('/domains', 'POST', ['domain' => $domain]);
             if ($response['success']) {
                 return ['success' => true];
             } else {

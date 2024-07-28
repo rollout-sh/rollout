@@ -219,8 +219,8 @@ class DeployCommand extends BaseCommand
         return file_exists($ignoreFile) ? file($ignoreFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     }
 
-    private function uploadProject($filePath, $domain)
-    {
+    private function uploadProject($filePath, $domain) {
+        
         $fileSize = filesize($filePath);
         $progressBar = $this->output->createProgressBar($fileSize);
         $progressBar->start();
