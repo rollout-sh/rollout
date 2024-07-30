@@ -20,8 +20,16 @@ class BaseCommand extends Command
 
     protected function initialize(InputInterface $input, OutputInterface $output) {
         $io = new SymfonyStyle($input, $output);
-        $io->title('Welcome to Rollout CLI');
-        $io->text('Rollout CLI helps you manage your deployments and custom domains with ease.');
+        $io->text('
+    ____        ____            __ 
+   / __ \____  / / /___  __  __/ /_
+  / /_/ / __ \/ / / __ \/ / / / __/
+ / _, _/ /_/ / / / /_/ / /_/ / /_  
+/_/ |_|\____/_/_/\____/\__,_/\__/  
+                                   
+');
+        $io->writeln('<fg=blue>Rollout - Static Site Hosting for Developers on Steroids!</>');
+        // $io->text('Rollout CLI helps you manage your deployments and custom domains with ease.');
         $io->newLine();
     }
 

@@ -1,13 +1,12 @@
 <?php
 // src/Command/LoginCommand.php
-
 namespace Rollout\Command;
 
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Input\InputArgument;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Rollout\Service\ApiClientService;
 use Rollout\Service\AuthService;
 use Rollout\Service\ConfigService;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -20,10 +19,12 @@ use Symfony\Component\Console\Command\Command;
 class LoginCommand extends BaseCommand {
 
     private $authService;
+    private $apiClientService;
 
-    public function __construct(ConfigService $configService, AuthService $authService)
+    public function __construct(ConfigService $configService, AuthService $authService, ApiClientService $apiClientService)
     {
         $this->authService = $authService;
+        $this->apiClientService = $apiClientService;
         parent::__construct($configService);
     }
 
@@ -47,11 +48,21 @@ class LoginCommand extends BaseCommand {
             $password = $io->askHidden('Password');
         }
 
-        if ($this->authService->login($email, $password)) {
+        $response = $this->apiClientService->makeApiRequest('POST', '/login', [
+            'json' => [
+                'email' => $email,
+                'password' => $password,
+            ]
+        ]);
+
+        if ($response['message'] && $response['token']) {
+            $config = $this->configService->readConfig();
+            $config['token'] = $response['token'];
+            $this->configService->writeConfig($config);
             $io->success('Logged in successfully!');
             return Command::SUCCESS;
         } else {
-            $io->error('Login failed.');
+            $io->error($response['message']);
             return Command::FAILURE;
         }
     }

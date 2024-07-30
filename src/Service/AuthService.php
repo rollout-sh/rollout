@@ -1,5 +1,6 @@
 <?php
 // src/Service/AuthService.php
+
 namespace Rollout\Service;
 
 use GuzzleHttp\Client;
@@ -34,7 +35,7 @@ class AuthService
                 $body = $response->getBody()->getContents();
                 $data = json_decode($body, true);
 
-                return $data['email'][0] ?? $data['password'][0] ?? 'An error occurred during registration.';
+                return $data['email'][0] ?? 'An error occurred during registration.';
             }
             return 'An error occurred during registration.';
         }
@@ -52,7 +53,9 @@ class AuthService
 
             if ($response->getStatusCode() === 200) {
                 $data = json_decode($response->getBody()->getContents(), true);
-                $this->configService->writeConfig(['token' => $data['token']]);
+                $config = $this->configService->readConfig();
+                $config['token'] = $data['token'];
+                $this->configService->writeConfig($config);
                 return true;
             }
 

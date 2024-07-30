@@ -3,17 +3,21 @@
 // rollout
 require __DIR__ . '/vendor/autoload.php';
 
+use Rollout\Command\DeployCommand;
 use Symfony\Component\Console\Application;
 use Rollout\Service\ConfigService;
 use Rollout\Service\AuthService;
 use Rollout\Command\RegisterCommand;
 use Rollout\Command\LoginCommand;
+use Rollout\Service\ApiClientService;
 
 $configService = new ConfigService;
 $authService = new AuthService($configService);
+$apiClientService = new ApiClientService($configService);
 
 $application = new Application;
 $application->add(new RegisterCommand($configService, $authService));
-$application->add(new LoginCommand($configService, $authService));
+$application->add(new LoginCommand($configService, $authService, $apiClientService));
+$application->add(new DeployCommand($configService, $authService, $apiClientService));
 
 $application->run();
