@@ -109,9 +109,7 @@ class DeployCommand extends BaseCommand {
             ]
         ]);
 
-
         if (!$response['success']) {
-            // Log detailed error message for debugging
             return null;
         }
 

@@ -12,16 +12,14 @@ class AuthService
     private $client;
     private $apiUrl = 'https://app.rollout.sh.test/api/v1'; // Update with your API URL
 
-    public function __construct(ConfigService $configService)
-    {
+    public function __construct(ConfigService $configService) {
         $this->configService = $configService;
         $this->client = new Client();
     }
 
-    public function register($email, $password)
-    {
+    public function register($email, $password) {
         try {
-            $response = $this->client->post("{$this->apiUrl}/register", [
+            $response = $this->client->post("{$this->apiUrl}/auth/register", [
                 'json' => [
                     'email' => $email,
                     'password' => $password,
@@ -35,14 +33,13 @@ class AuthService
                 $body = $response->getBody()->getContents();
                 $data = json_decode($body, true);
 
-                return $data['email'][0] ?? 'An error occurred during registration.';
+                return $data['message'] ?? 'An error occurred during registration.';
             }
             return 'An error occurred during registration.';
         }
     }
 
-    public function login($email, $password)
-    {
+    public function login($email, $password) {
         try {
             $response = $this->client->post("{$this->apiUrl}/login", [
                 'json' => [

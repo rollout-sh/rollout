@@ -1,13 +1,14 @@
 <?php
 // src/Command/LoginCommand.php
+
 namespace Rollout\Command;
 
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Rollout\Service\ApiClientService;
-use Rollout\Service\AuthService;
 use Rollout\Service\ConfigService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -18,21 +19,15 @@ use Symfony\Component\Console\Command\Command;
 )]
 class LoginCommand extends BaseCommand {
 
-    private $authService;
-    private $apiClientService;
-
-    public function __construct(ConfigService $configService, AuthService $authService, ApiClientService $apiClientService)
-    {
-        $this->authService = $authService;
-        $this->apiClientService = $apiClientService;
-        parent::__construct($configService);
+    public function __construct(ConfigService $configService, ApiClientService $apiClientService) {
+        parent::__construct($configService, $apiClientService);
     }
 
-    protected function configure()
-    {
+    protected function configure() {
         $this
             ->addArgument('email', InputArgument::OPTIONAL, 'Email')
-            ->addArgument('password', InputArgument::OPTIONAL, 'Password');
+            ->addArgument('password', InputArgument::OPTIONAL, 'Password')
+            ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int {
@@ -48,21 +43,35 @@ class LoginCommand extends BaseCommand {
             $password = $io->askHidden('Password');
         }
 
-        $response = $this->apiClientService->makeApiRequest('POST', '/login', [
+        if ($this->isLoggingEnabled) {
+            $io->note('Attempting to log in with provided credentials.');
+        }
+
+        $response = $this->apiClientService->makeApiRequest('POST', '/auth/login', [
             'json' => [
                 'email' => $email,
                 'password' => $password,
             ]
         ]);
 
-        if ($response['message'] && $response['token']) {
+        if ($this->isLoggingEnabled) {
+            $io->note('API request completed.');
+        }
+
+        if ($response['success'] && $response['data']['token']) {
             $config = $this->configService->readConfig();
-            $config['token'] = $response['token'];
+            $config['token'] = $response['data']['token'];
             $this->configService->writeConfig($config);
             $io->success('Logged in successfully!');
+            if ($this->isLoggingEnabled) {
+                $io->note('Token saved to configuration.');
+            }
             return Command::SUCCESS;
         } else {
-            $io->error($response['message']);
+            $io->error($response['message'] ?? 'An error occurred during login.');
+            if ($this->isLoggingEnabled) {
+                $io->error('Login attempt failed.');
+            }
             return Command::FAILURE;
         }
     }

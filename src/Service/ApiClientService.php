@@ -5,26 +5,22 @@ namespace Rollout\Service;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
-class ApiClientService
-{
+class ApiClientService {
+    
     private $client;
-    private $apiUrl = 'https://app.rollout.sh.test/api/v1';
-
+    private $apiUrl;
     private $configService;
 
-    public function __construct(ConfigService $configService)
-    {
+    public function __construct(ConfigService $configService, $apiUrl = 'https://app.rollout.sh.test/api/v1') {
         $this->configService = $configService;
-        
-        $this->client = new Client([
-            'headers' => [
-            ]
-        ]);
+        $this->apiUrl = $apiUrl;
 
+        $this->client = new Client([
+            'timeout' => 10.0, // Set a timeout for the requests
+        ]);
     }
 
     public function makeApiRequest($method, $endpoint, $options = []) {
-
         // Set default headers and merge with any additional headers provided in $options
         $defaultHeaders = [
             'Accept' => 'application/json',
@@ -32,8 +28,8 @@ class ApiClientService
 
         // Check if token exists
         $config = $this->configService->readConfig();
-        if (!isset($config['token'])) {
-            $defaultHeaders = $defaultHeaders + ['Authorization' => 'Bearer ' . $config['token'],];
+        if (isset($config['token'])) {
+            $defaultHeaders['Authorization'] = 'Bearer ' . $config['token'];
         }
 
         if (isset($options['headers'])) {
@@ -51,7 +47,15 @@ class ApiClientService
                 $body = $response->getBody()->getContents();
                 return json_decode($body, true);
             }
-            return ['success' => false, 'error' => 'An error occurred during the API request.'];
+            return [
+                'success' => false,
+                'error' => 'An error occurred during the API request: ' . $e->getMessage(),
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'error' => 'An unexpected error occurred: ' . $e->getMessage(),
+            ];
         }
     }
 }
