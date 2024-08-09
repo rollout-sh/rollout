@@ -41,4 +41,34 @@ class ConfigService {
         $config['active_subdomain'] = $subdomain;
         $this->writeConfig($config);
     }
+
+    public function saveConfigForPath($path, $data) {
+        $config = $this->readConfig();
+
+        // Normalize the path (convert to absolute path for consistency)
+        $absolutePath = realpath($path);
+
+        if ($absolutePath === false) {
+            throw new \Exception("Invalid path: $path");
+        }
+
+        // Store the configuration for the specific path
+        $config['deployments'][$absolutePath] = $data;
+
+        $this->writeConfig($config);
+    }
+
+    public function getConfigForPath($path) {
+        $config = $this->readConfig();
+
+        // Normalize the path (convert to absolute path for consistency)
+        $absolutePath = realpath($path);
+
+        if ($absolutePath === false) {
+            return null;
+        }
+
+        // Retrieve the configuration for the specific path
+        return $config['deployments'][$absolutePath] ?? null;
+    }
 }

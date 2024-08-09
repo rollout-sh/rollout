@@ -9,143 +9,217 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Rollout\Service\ApiClientService;
-use Rollout\Service\AuthService;
 use Rollout\Service\ConfigService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use ZipArchive;
+use Exception;
 
 #[AsCommand(
     name: 'deploy',
-    description: 'Deploy a static site'
+    description: 'Deploy an application'
 )]
 class DeployCommand extends BaseCommand {
 
-    private $authService;
-    private $apiClientService;
-
-    public function __construct(ConfigService $configService, AuthService $authService, ApiClientService $apiClientService)
-    {
-        $this->authService = $authService;
-        $this->apiClientService = $apiClientService;
-        parent::__construct($configService);
+    public function __construct(ConfigService $configService, ApiClientService $apiClientService) {
+        parent::__construct($configService, $apiClientService);
     }
 
     protected function configure()
     {
         $this
-            ->addArgument('path', InputArgument::OPTIONAL, 'Path to the static site directory', getcwd())
-            ->addOption('app', 'a', InputOption::VALUE_OPTIONAL, 'App name for the deployment');
+            ->addOption('app', null, InputOption::VALUE_OPTIONAL, 'Name of the application to deploy')
+            ->addOption('path', null, InputOption::VALUE_OPTIONAL, 'Path to the application (default is current directory)')
+            ->addOption('domain', null, InputOption::VALUE_OPTIONAL, 'Custom domain for the deployment');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int {
         $io = new SymfonyStyle($input, $output);
-        $path = $input->getArgument('path');
-        $providedAppName = $input->getOption('app');
+        $appName = $input->getOption('app');
+        $path = $input->getOption('path') ?: getcwd(); // Default to current directory
+        $customDomain = $input->getOption('domain');
 
-        // Check if token exists
-        $config = $this->configService->readConfig();
-        if (!isset($config['token'])) {
-            $io->error('You are not logged in. Please log in first.');
+        if (!is_dir($path)) {
+            $io->error('The specified path does not exist or is not a directory.');
             return Command::FAILURE;
         }
 
-        // Automatically determine app name from current folder or provided option
-        $appName = $this->determineAppName($path, $providedAppName);
-
-        // Create or get the app
-        $appId = $this->getOrCreateApp($appName, $config['token']);
-        if (!$appId) {
-            $io->error('Failed to create or get the app.');
-            return Command::FAILURE;
+        if ($this->isLoggingEnabled) {
+            $io->note("Deployment process started for path: $path");
         }
 
-        // Create a zip of the deployment folder
-        $zipPath = $this->createZip($path);
+        try {
+            // Load or initialize config
+            $config = $this->configService->getConfigForPath($path);
 
-        // Upload the zip to the server
-        $result = $this->uploadDeployment($zipPath, $appId, $config['token']);
+            // print_r($config); die;
 
-        if ($result === true) {
-            $io->success('Deployment successful!');
-            return Command::SUCCESS;
-        } else {
-            $io->error($result);
-            return Command::FAILURE;
-        }
-    }
+            $appId = $config['app_id'] ?? null;
+            $domain = $config['domain'] ?? null;
 
-    private function determineAppName($path, $providedAppName)
-    {
-        if ($providedAppName) {
-            return $providedAppName;
-        }
+            // 1. If config has config for the current folder, then use it
+                // verify the application ownership by calling the api.
+                    // if api response is valid, proceed with the deployment
+                    // else show an error to the user
+            // 2. else if does not have connfig, treat it as a new deployment
+                // save variables, path, app, and domain from the config
+                // if user passed any of these variables, then replace these
 
-        // Determine app name from current folder
-        $config = $this->configService->readConfig();
-        $currentFolder = basename($path);
-
-        if (!isset($config['apps'][$currentFolder])) {
-            $response = $this->apiClientService->makeApiRequest('POST', '/generate-app-name');
-            if ($response['success']) {
-                $config['apps'][$currentFolder] = $response['appName'];
-                $this->configService->writeConfig($config);
-            } else {
-                throw new \RuntimeException('Failed to generate a unique app name. Please try again.');
+            // Step 1: Check if app_name is provided
+            if ($appName) {
+                // Verify or create the app using the API
+                $appIdForAppName = $this->getAppIdByName($appName, $io);
+                if (!$appIdForAppName) {
+                    // check if appId is in thhe config
+                    if(!$appId) {
+                        $appId = $this->createApp($appName, $io);
+                    }
+                }
+            } elseif(!$appId) {
+                // Step 2: No app_name provided, create a new app
+                $appId = $this->createApp(null, $io); // API will generate an app name
             }
-        }
 
-        return $config['apps'][$currentFolder];
+            // Step 3: Check the config for existing settings
+            if (!$appName && !$path) {
+                $existingConfig = $this->configService->getConfigForPath($path);
+                if ($existingConfig) {
+                    $appId = $existingConfig['app_id'];
+                    $customDomain = $existingConfig['domain'] ?? $customDomain;
+                }
+            }
+
+            // Step 4: Handle domain logic
+            if ($customDomain) {
+                $this->handleCustomDomain($appId, $customDomain, $io);
+            } else {
+                $customDomain = $this->getOrCreateDomain($appId, $io);
+            }
+
+            // Step 5: Deploy the app
+            $this->deployApp($appId, $path, $customDomain, $io);
+
+            // Save deployment details in config
+            $this->configService->saveConfigForPath($path, [
+                'app_id' => $appId,
+                'domain' => $customDomain,
+            ]);
+
+            $io->success('Deployment completed successfully!');
+            if ($this->isLoggingEnabled) {
+                $io->note('Deployment details saved in config.');
+            }
+            return Command::SUCCESS;
+
+        } catch (Exception $e) {
+            $io->error('An error occurred during deployment: ' . $e->getMessage());
+            if ($this->isLoggingEnabled) {
+                $io->error('Exception details: ' . $e->getTraceAsString());
+            }
+            return Command::FAILURE;
+        }
     }
 
-    private function getOrCreateApp($appName, $token)
+    private function getAppIdByName($appName, SymfonyStyle $io)
+    {
+        $response = $this->apiClientService->makeApiRequest('GET', "/apps/$appName");
+
+        if ($response['success']) {
+            if ($this->isLoggingEnabled) {
+                $io->note('App found: ' . $response['data']['id']);
+            }
+            return $response['data']['id'];
+        }
+
+        $io->warning('App not found: ' . $appName);
+        return null;
+    }
+
+    private function createApp($appName, SymfonyStyle $io)
     {
         $response = $this->apiClientService->makeApiRequest('POST', '/apps', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-            ],
             'json' => [
                 'name' => $appName,
-            ]
+            ],
+        ]);
+
+        if ($response['success']) {
+            $appId = $response['data']['id'];
+            $io->success('App created successfully with ID: ' . $appId);
+            return $appId;
+        }
+
+        throw new Exception('Failed to create app: ' . ($response['message'] ?? 'Unknown error'));
+    }
+
+    private function handleCustomDomain($appId, $customDomain, SymfonyStyle $io)
+    {
+        $response = $this->apiClientService->makeApiRequest('POST', "/apps/$appId/domains", [
+            'json' => [
+                'domain' => $customDomain,
+            ],
         ]);
 
         if (!$response['success']) {
-            return null;
+            throw new Exception('Failed to handle custom domain: ' . ($response['message'] ?? 'Unknown error'));
         }
 
-        // Fetch the latest app details
-        $appId = $response['app']['id'];
-        $appDetails = $this->fetchAppDetails($appId, $token);
-
-        if (!$appDetails['success']) {
-            error_log('Failed to fetch app details: ' . $appDetails['error']);
-            return null;
+        if ($this->isLoggingEnabled) {
+            $io->note('Custom domain handled: ' . $customDomain);
         }
-
-        // Update config with latest app details if necessary
-        $config = $this->configService->readConfig();
-        $config['apps'][$appName] = $appDetails['app'];
-        $this->configService->writeConfig($config);
-
-        return $appId;
     }
 
-    private function fetchAppDetails($appId, $token)
+    private function getOrCreateDomain($appId, SymfonyStyle $io)
     {
-        return $this->apiClientService->makeApiRequest('GET', "/apps/{$appId}", [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
+        $response = $this->apiClientService->makeApiRequest('POST', "/apps/$appId/domains");
+
+        if ($response['success']) {
+            $domain = $response['data']['domain']['name'];
+            if ($this->isLoggingEnabled) {
+                $io->note('Domain retrieved/created: ' . $domain);
+            }
+            return $domain;
+        }
+
+        throw new Exception('Failed to retrieve/create domain: ' . ($response['message'] ?? 'Unknown error'));
+    }
+
+    private function deployApp($appId, $path, $domain, SymfonyStyle $io)
+    {
+        $zipPath = $this->createDeploymentPackage($path);
+
+        $response = $this->apiClientService->makeApiRequest('POST', "/deployments", [
+            'multipart' => [
+                [
+                    'name' => 'file',
+                    'contents' => fopen($zipPath, 'r'),
+                ],
+                [
+                    'name' => 'domain',
+                    'contents' => $domain,
+                ],
+                [
+                    'name' => 'app_id',
+                    'contents' => $appId,
+                ],
             ],
         ]);
+
+        if (!$response['success']) {
+            throw new Exception('Deployment failed: ' . ($response['message'] ?? 'Unknown error'));
+        }
+
+        if ($this->isLoggingEnabled) {
+            $io->note('Deployment executed successfully.');
+        }
     }
 
-    private function createZip($path)
+    private function createDeploymentPackage($path)
     {
-        $zip = new ZipArchive();
-        $zipPath = tempnam(sys_get_temp_dir(), 'deploy') . '.zip';
+        $zip = new \ZipArchive();
+        $zipPath = sys_get_temp_dir() . '/deployment.zip';
 
-        if ($zip->open($zipPath, ZipArchive::CREATE) !== true) {
-            throw new \RuntimeException('Cannot create zip file.');
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            throw new Exception('Failed to create deployment package.');
         }
 
         $files = new \RecursiveIteratorIterator(
@@ -153,70 +227,15 @@ class DeployCommand extends BaseCommand {
             \RecursiveIteratorIterator::LEAVES_ONLY
         );
 
-        foreach ($files as $file) {
+        foreach ($files as $name => $file) {
             if (!$file->isDir()) {
                 $filePath = $file->getRealPath();
                 $relativePath = substr($filePath, strlen($path) + 1);
-
-                if (!$this->shouldIgnoreFile($relativePath)) {
-                    $zip->addFile($filePath, $relativePath);
-                }
+                $zip->addFile($filePath, $relativePath);
             }
         }
 
         $zip->close();
         return $zipPath;
-    }
-
-    private function shouldIgnoreFile($relativePath)
-    {
-        $ignoredPatterns = [
-            '/\.git/',
-            '/\.DS_Store/',
-            '/\.rolloutignore/',
-            '/node_modules/',
-            '/.*\.php$/'
-        ];
-
-        foreach ($ignoredPatterns as $pattern) {
-            if (preg_match($pattern, $relativePath)) {
-                return true;
-            }
-        }
-
-        // Check against .rolloutignore
-        $ignoreFile = getcwd() . '/.rolloutignore';
-        if (file_exists($ignoreFile)) {
-            $ignoredFiles = file($ignoreFile, FILE_IGNORE_NEW_LINES);
-            foreach ($ignoredFiles as $ignoredFile) {
-                if (fnmatch($ignoredFile, $relativePath)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function uploadDeployment($zipPath, $appId, $token)
-    {
-        $response = $this->apiClientService->makeApiRequest('POST', '/deploy', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-            ],
-            'multipart' => [
-                [
-                    'name'     => 'file',
-                    'contents' => fopen($zipPath, 'r'),
-                    'filename' => basename($zipPath),
-                ],
-                [
-                    'name'     => 'app_id',
-                    'contents' => $appId,
-                ],
-            ]
-        ]);
-
-        return $response['success'] ? true : 'Deployment failed: ' . $response['error'];
     }
 }
